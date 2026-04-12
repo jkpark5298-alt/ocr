@@ -33,6 +33,8 @@ const VALID_STANDS = [
   "672", "674L", "674R"
 ];
 
+const KNOWN_NAMES = ["박종규", "이영식", "윤기선"];
+
 function setStatus(text) {
   if (statusEl) statusEl.textContent = text;
 }
@@ -226,23 +228,28 @@ function extractName(raw) {
 
   const compact = String(raw).replace(/\s+/g, "");
 
-  const explicitNames = ["박종규", "이영식", "윤기선"];
-  for (const name of explicitNames) {
+  for (const name of KNOWN_NAMES) {
     if (compact.includes(name)) return name;
   }
 
   const fixedCompact = compact
     .replace(/박종구/g, "박종규")
+    .replace(/박종7/g, "박종규")
+    .replace(/박종9/g, "박종규")
+    .replace(/박종큐/g, "박종규")
     .replace(/이영삭/g, "이영식")
     .replace(/이영직/g, "이영식")
     .replace(/윤기션/g, "윤기선");
 
-  for (const name of explicitNames) {
+  for (const name of KNOWN_NAMES) {
     if (fixedCompact.includes(name)) return name;
   }
 
   const m = String(raw).match(/\b[ABC]\s*[가-힣]{2,4}\b/);
-  if (m) return normalizeText(m[0]);
+  if (m) {
+    const candidate = normalizeText(m[0]).replace(/^[ABC]\s*/, "");
+    return normalizeName(candidate);
+  }
 
   return "";
 }
@@ -281,22 +288,23 @@ function extractRoute(raw) {
 function rowMatches(row, searchType, keyword) {
   if (!keyword) return true;
 
-  const k = normalizeName(keyword).toUpperCase();
+  const normalizedKeyword = normalizeName(keyword).toUpperCase();
+  const normalizedRowName = normalizeName(row.name).toUpperCase();
 
   if (searchType === "name") {
-    return normalizeName(row.name).toUpperCase().includes(k);
+    return normalizedRowName === normalizedKeyword;
   }
 
   if (searchType === "flightNo") {
-    return String(row.flightNo || "").toUpperCase().includes(k);
+    return String(row.flightNo || "").toUpperCase().includes(normalizedKeyword);
   }
 
   if (searchType === "stand") {
-    return String(row.stand || "").toUpperCase().includes(k);
+    return String(row.stand || "").toUpperCase().includes(normalizedKeyword);
   }
 
   if (searchType === "raw") {
-    return String(row.raw || "").toUpperCase().includes(k);
+    return String(row.raw || "").toUpperCase().includes(normalizedKeyword);
   }
 
   return true;
@@ -310,8 +318,8 @@ function mergeBrokenNameRows(lines) {
     const next = lines[i + 1] || "";
 
     const currentHasFlight = /KJ|0\d{3}|\b\d{3,4}\b/.test(current);
-    const currentHasKnownName = /(박종규|박종구|이영식|이영삭|이영직|윤기선|윤기션|[ABC]\s*[가-힣]{2,4})/.test(current);
-    const nextStartsWithName = /^(박종규|박종구|이영식|이영삭|이영직|윤기선|윤기션|[ABC]\s*[가-힣]{2,4})/.test(next);
+    const currentHasKnownName = /(박종규|박종구|박종7|박종9|박종큐|이영식|이영삭|이영직|윤기선|윤기션|[ABC]\s*[가-힣]{2,4})/.test(current);
+    const nextStartsWithName = /^(박종규|박종구|박종7|박종9|박종큐|이영식|이영삭|이영직|윤기선|윤기션|[ABC]\s*[가-힣]{2,4})/.test(next);
 
     if (currentHasFlight && !currentHasKnownName && nextStartsWithName) {
       current = `${current} ${next}`;
@@ -322,6 +330,17 @@ function mergeBrokenNameRows(lines) {
   }
 
   return merged;
+}
+
+function shouldRejectForExactNameSearch(row, keyword) {
+  const targetName = normalizeName(keyword);
+  const rowName = normalizeName(row.name);
+
+  if (!targetName) return false;
+  if (!rowName) return true;
+  if (rowName !== targetName) return true;
+
+  return false;
 }
 
 function parseRows(text, keyword, searchType = "name") {
@@ -349,10 +368,20 @@ function parseRows(text, keyword, searchType = "name") {
     row.stand = normalizeStand(row.stand);
 
     if (!row.flightNo && !row.name && !row.stand) continue;
+
+    if (searchType === "name" && shouldRejectForExactNameSearch(row, keyword)) {
+      continue;
+    }
+
     if (!rowMatches(row, searchType, keyword)) continue;
 
+    if (searchType === "name") {
+      if (!row.name) continue;
+      if (normalizeName(row.name) !== normalizeName(keyword)) continue;
+    }
+
+    // 이름 없이 편명/주기장만 뜬 행 제거
     if (searchType === "name" && !row.name) continue;
-    if (!row.flightNo && row.stand && !row.name) continue;
 
     rows.push(row);
   }
