@@ -6,6 +6,9 @@
   --muted: #5f6b84;
   --primary: #111827;
   --primary-soft: #f2f5fb;
+  --red: #d92d20;
+  --red-soft: #fff1f1;
+  --red-line: #f1a7a1;
   --shadow: 0 18px 45px rgba(31, 41, 55, 0.08);
   --radius-xl: 28px;
   --radius-lg: 22px;
@@ -246,12 +249,13 @@ textarea {
   color: #39445a;
   cursor: pointer;
   user-select: none;
+  transition: 0.15s ease;
 }
 
 .chip-check input:checked + span {
-  background: #e8eefc;
-  border-color: #b7c6f6;
-  color: #1b2b63;
+  background: var(--red-soft);
+  border-color: var(--red-line);
+  color: var(--red);
 }
 
 .inline-check {
