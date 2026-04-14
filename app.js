@@ -411,13 +411,17 @@ function renderTable(rows, columns) {
   });
 }
 
-function buildCopyText(rows, columns) {
+function stripFlightPrefix(flightNo) {
+  return String(flightNo || "").replace(/^KJ/i, "");
+}
+
+function buildCopyText(rows) {
   return rows
     .map((row, idx) => {
-      const parts = columns
-        .map((col) => row[col] || "")
-        .filter((v) => String(v).trim() !== "");
-      return `${idx + 1}. ${parts.join(" / ")}`;
+      const flightFull = row.flightNo || "";
+      const flightShort = stripFlightPrefix(flightFull);
+      const stand = row.stand || "";
+      return `${idx + 1}. ${flightFull} / ${flightShort} / ${stand}`;
     })
     .join("\n");
 }
@@ -522,7 +526,7 @@ if (runBtn) {
       renderTable(lastRows, selectedColumns);
 
       if (copyOutputEl) {
-        copyOutputEl.value = buildCopyText(lastRows, selectedColumns);
+        copyOutputEl.value = buildCopyText(lastRows);
       }
 
       setStatus(`완료 (${lastRows.length}건)`);
