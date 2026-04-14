@@ -20,6 +20,8 @@ let currentFile = null;
 let lastRows = [];
 let selectedColumns = ["flightNo", "stand"];
 
+const FIXED_SEARCH_VALUE = "박종규";
+
 const COLUMN_LABELS = {
   flightNo: "편명",
   name: "이름(R/O L/D)",
@@ -39,6 +41,17 @@ const KNOWN_NAMES = ["박종규", "이영식", "윤기선", "최용준"];
 
 function setStatus(text) {
   if (statusEl) statusEl.textContent = text;
+}
+
+function enforceFixedSearch() {
+  if (searchTypeEl) {
+    searchTypeEl.value = "raw";
+  }
+
+  if (searchValueEl) {
+    searchValueEl.value = FIXED_SEARCH_VALUE;
+    searchValueEl.setAttribute("readonly", "readonly");
+  }
 }
 
 function showPreview(file) {
@@ -67,6 +80,18 @@ if (galleryInput) {
   });
 }
 
+if (searchTypeEl) {
+  searchTypeEl.addEventListener("change", () => {
+    searchTypeEl.value = "raw";
+  });
+}
+
+if (searchValueEl) {
+  searchValueEl.addEventListener("input", () => {
+    searchValueEl.value = FIXED_SEARCH_VALUE;
+  });
+}
+
 function getSelectedColumns() {
   const checked = Array.from(document.querySelectorAll('input[name="columns"]:checked'))
     .map((el) => el.value)
@@ -80,6 +105,7 @@ function normalizeText(v) {
   return String(v || "")
     .replace(/\u00A0/g, " ")
     .replace(/[|]/g, "I")
+    .replace(/[，]/g, ",")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -101,6 +127,7 @@ function normalizeName(v) {
     "이영직": "이영식",
     "이영식1": "이영식",
     "윤기션": "윤기선",
+    "최용춘": "최용준",
     "최용준1": "최용준"
   };
 
@@ -218,7 +245,8 @@ function findNameInLine(line) {
     .replace(/박종큐/g, "박종규")
     .replace(/이영삭/g, "이영식")
     .replace(/이영직/g, "이영식")
-    .replace(/윤기션/g, "윤기선");
+    .replace(/윤기션/g, "윤기선")
+    .replace(/최용춘/g, "최용준");
 
   for (const name of KNOWN_NAMES) {
     if (fixed.includes(name)) return name;
@@ -263,6 +291,11 @@ function parseLine(line) {
   return row;
 }
 
+function isStandOnlyLine(line) {
+  const row = parseLine(line);
+  return !!(row.stand && !row.flightNo && !row.name && !row.regNo && !row.etd);
+}
+
 function mergeBrokenLines(lines) {
   const out = [];
 
@@ -271,6 +304,8 @@ function mergeBrokenLines(lines) {
     if (!current) continue;
 
     const next = normalizeText(lines[i + 1] || "");
+    const next2 = normalizeText(lines[i + 2] || "");
+
     const currentName = findNameInLine(current);
     const nextName = findNameInLine(next);
 
@@ -284,6 +319,24 @@ function mergeBrokenLines(lines) {
       if (hasData) {
         current = `${current} ${next}`;
         i += 1;
+      }
+    }
+
+    if (isStandOnlyLine(current) && next) {
+      const nextParsed = parseLine(next);
+      if (nextParsed.flightNo || nextParsed.regNo || nextParsed.etd) {
+        current = `${current} ${next}`;
+        i += 1;
+      }
+    }
+
+    if (isStandOnlyLine(current) && next && next2) {
+      const nextParsed = parseLine(next);
+      const next2Name = findNameInLine(next2);
+
+      if ((nextParsed.flightNo || nextParsed.regNo || nextParsed.etd) && next2Name) {
+        current = `${current} ${next} ${next2}`;
+        i += 2;
       }
     }
 
@@ -328,7 +381,8 @@ function dedupeRows(rows) {
       row.name || "",
       row.stand || "",
       row.etd || "",
-      row.regNo || ""
+      row.regNo || "",
+      row.raw || ""
     ].join("|");
 
     if (seen.has(key)) continue;
@@ -339,7 +393,7 @@ function dedupeRows(rows) {
   return out;
 }
 
-function parseRowsFromText(text, keyword, searchType = "name") {
+function parseRowsFromText(text, keyword, searchType = "raw") {
   const rawLines = String(text)
     .split(/\n+/)
     .map((v) => normalizeText(v))
@@ -366,10 +420,8 @@ function parseRowsFromText(text, keyword, searchType = "name") {
     );
 
     if (!row.flightNo && !row.name && !row.stand && !row.regNo) continue;
-    if (searchType === "name" && !row.name) continue;
-    if (searchType === "name" && normalizeName(row.name) !== normalizeName(keyword)) continue;
-    if (!row.flightNo) continue;
     if (!rowMatches(row, searchType, keyword)) continue;
+    if (!row.flightNo && !row.stand && !row.name) continue;
 
     parsedRows.push(row);
   }
@@ -488,6 +540,7 @@ if (runBtn) {
     }
 
     try {
+      enforceFixedSearch();
       selectedColumns = getSelectedColumns();
       setStatus("이미지 전처리 중...");
 
@@ -508,8 +561,8 @@ if (runBtn) {
       });
 
       const text = result?.data?.text || "";
-      const keyword = searchValueEl ? searchValueEl.value.trim() : "";
-      const searchType = searchTypeEl ? searchTypeEl.value : "name";
+      const keyword = FIXED_SEARCH_VALUE;
+      const searchType = "raw";
 
       if (ocrRawOutputEl) {
         ocrRawOutputEl.value = text;
@@ -563,3 +616,5 @@ if ("serviceWorker" in navigator) {
     });
   });
 }
+
+enforceFixedSearch();
