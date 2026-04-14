@@ -329,4 +329,87 @@
         </div>
       </div>
 
-      <div class="field" style
+      <div class="field" style="margin-top:16px;">
+        <label>추출 컬럼 선택</label>
+        <div class="checkbox-row">
+          <label><input type="checkbox" name="columns" value="flightNo" checked /> 편명</label>
+          <label><input type="checkbox" name="columns" value="stand" checked /> 주기장</label>
+          <label><input type="checkbox" name="columns" value="name" /> 이름(R/O L/D)</label>
+          <label><input type="checkbox" name="columns" value="etd" /> ETD</label>
+          <label><input type="checkbox" name="columns" value="route" /> 노선</label>
+          <label><input type="checkbox" name="columns" value="regNo" /> 등록기호</label>
+          <label><input type="checkbox" name="columns" value="raw" /> 원문</label>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:16px;">
+        <label>
+          <input id="removeLeadingZero" type="checkbox" checked />
+          편명 숫자 앞자리 0 제거
+        </label>
+      </div>
+
+      <div class="button-row">
+        <button id="runBtn" class="primary" type="button">OCR 실행</button>
+      </div>
+
+      <div id="status" class="status">대기 중</div>
+    </section>
+
+    <section class="card">
+      <h2>3. 결과 표</h2>
+
+      <div class="table-wrap" style="margin-top:16px;">
+        <table>
+          <thead id="resultTableHead"></thead>
+          <tbody id="resultTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>4. 복사용 출력</h2>
+
+      <div class="field" style="margin-top:16px;">
+        <label for="copyOutput">복사 내용</label>
+        <textarea
+          id="copyOutput"
+          placeholder="예: 1. KJ248 / 248 / 623"
+        ></textarea>
+      </div>
+
+      <div class="button-row">
+        <button id="copyBtn" class="success" type="button">복사</button>
+        <button id="csvBtn" class="warn" type="button">CSV 다운로드</button>
+      </div>
+
+      <div class="footer-note">
+        복사용 출력 형식: <strong>번호. KJ편명 / KJ제외숫자 / 주기장</strong>
+      </div>
+    </section>
+
+    <details class="card debug-card">
+      <summary>5. OCR 원문 디버그 (필요시 펼치기)</summary>
+
+      <div style="margin-top:16px;">
+        <div class="field">
+          <label for="ocrRawOutput">OCR 전체 원문</label>
+          <textarea id="ocrRawOutput" placeholder="OCR 실행 후 전체 원문이 표시됩니다."></textarea>
+        </div>
+
+        <div class="field" style="margin-top:16px;">
+          <label for="ocrLinesOutput">OCR 줄별 디버그</label>
+          <textarea id="ocrLinesOutput" placeholder="줄별 파싱 대상 텍스트가 표시됩니다."></textarea>
+        </div>
+
+        <div class="footer-note">
+          기본은 숨김이며, 필요할 때만 펼쳐서 확인할 수 있습니다.
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
