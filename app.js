@@ -94,14 +94,12 @@ function getSelectedColumns() {
     .map((el) => el.value)
     .filter(Boolean);
 
-  if (checked.length === 0) return ["flightNo", "stand"];
-  return checked;
+  return checked.length ? checked : ["flightNo", "stand"];
 }
 
 function normalizeText(v) {
   return String(v || "")
     .replace(/\u00A0/g, " ")
-    .replace(/\n+/g, " ")
     .replace(/[|]/g, "I")
     .replace(/[，]/g, ",")
     .replace(/[“”]/g, '"')
@@ -161,8 +159,7 @@ function normalizeStand(value) {
 
 function extractAnyStand(raw) {
   if (!raw) return "";
-  const text = String(raw).toUpperCase();
-  const m = text.match(/\b(621|622|623|624|625|626|627|672|674[LRI18B|])\b/);
+  const m = String(raw).toUpperCase().match(/\b(621|622|623|624|625|626|627|672|674[LRI18B|])\b/);
   return m ? normalizeStand(m[1]) : "";
 }
 
@@ -180,14 +177,11 @@ function normalizeFlightNo(v, removeLeadingZero = true) {
     .replace(/^K\|/, "KJ")
     .replace(/[^A-Z0-9]/g, "");
 
-  let m = s.match(/^KJ(\d{2,4})$/);
+  const m = s.match(/^KJ(\d{2,4})$/);
   if (!m) return "";
 
   let num = m[1];
-  if (removeLeadingZero) {
-    num = String(parseInt(num, 10));
-  }
-
+  if (removeLeadingZero) num = String(parseInt(num, 10));
   return /^\d{2,4}$/.test(num) ? `KJ${num}` : "";
 }
 
@@ -242,8 +236,8 @@ function extractRoute(raw) {
   return filtered.length >= 2 ? `${filtered[0]}-${filtered[1]}` : "";
 }
 
-function findNameInLine(line) {
-  const s = compactText(line);
+function findNameInText(text) {
+  const s = compactText(text);
 
   for (const name of KNOWN_NAMES) {
     if (s.includes(name)) return name;
@@ -273,7 +267,7 @@ function parseChunk(raw) {
 
   return {
     flightNo: extractFlightNo(text, removeLeadingZero),
-    name: normalizeName(findNameInLine(text)),
+    name: normalizeName(findNameInText(text)),
     stand: extractAnyStand(text),
     etd: extractETD(text),
     route: extractRoute(text),
@@ -303,49 +297,57 @@ function dedupeRows(rows) {
   return out;
 }
 
-function splitWholeTextToChunks(text) {
-  const normalized = normalizeText(text);
+function cleanWholeText(text) {
+  return normalizeText(
+    String(text || "")
+      .replace(/에어제타\s*$$$.*?$$$/gi, " ")
+      .replace(/주기장/g, " ")
+      .replace(/편명/g, " ")
+      .replace(/등록기호/g, " ")
+      .replace(/DEP/g, " ")
+      .replace(/APR/g, " ")
+      .replace(/ETD\/ETA/g, " ")
+      .replace(/R\/O\s*LD/g, " ")
+      .replace(/T\/O\s*R\/I/g, " ")
+  );
+}
 
-  // 헤더류 제거
-  let cleaned = normalized
-    .replace(/에어제타\s*$$$.*?$$$/gi, " ")
-    .replace(/주기장/g, " ")
-    .replace(/편명/g, " ")
-    .replace(/등록기호/g, " ")
-    .replace(/DEP/g, " ")
-    .replace(/APR/g, " ")
-    .replace(/ETD\/ETA/g, " ")
-    .replace(/R\/O\s*LD/g, " ")
-    .replace(/T\/O\s*R\/I/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+function getRowStartMatches(text) {
+  const regex = /\b(621|622|623|624|625|626|627|672|674[LRI18B|])\s+([A-Z0-9]{3,8})\b/gi;
+  const matches = [];
+  let m;
 
-  const tokens = cleaned.split(" ").filter(Boolean);
-
-  const startIndexes = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const stand = normalizeStand(tokens[i]);
-    if (!stand) continue;
-
-    const next = tokens[i + 1] || "";
-    const next2 = tokens[i + 2] || "";
+  while ((m = regex.exec(text)) !== null) {
+    const stand = normalizeStand(m[1]);
+    const token2 = (m[2] || "").toUpperCase();
 
     const looksLikeFlight =
-      /^K/i.test(next) ||
-      /^11\d{3,4}$/i.test(next) ||
-      /^I1\d{3,4}$/i.test(next) ||
-      /^K/i.test(next2);
+      token2.startsWith("K") ||
+      /^11\d{3,4}$/.test(token2) ||
+      /^I1\d{3,4}$/.test(token2);
 
-    if (looksLikeFlight) {
-      startIndexes.push(i);
+    if (stand && looksLikeFlight) {
+      matches.push({
+        index: m.index,
+        stand
+      });
     }
   }
 
+  return matches;
+}
+
+function splitWholeTextToChunks(text) {
+  const cleaned = cleanWholeText(text);
+  const starts = getRowStartMatches(cleaned);
+
+  if (!starts.length) return [];
+
   const chunks = [];
-  for (let i = 0; i < startIndexes.length; i++) {
-    const start = startIndexes[i];
-    const end = i < startIndexes.length - 1 ? startIndexes[i + 1] : tokens.length;
-    const chunk = tokens.slice(start, end).join(" ").trim();
+  for (let i = 0; i < starts.length; i++) {
+    const start = starts[i].index;
+    const end = i < starts.length - 1 ? starts[i + 1].index : cleaned.length;
+    const chunk = cleaned.slice(start, end).trim();
     if (chunk) chunks.push(chunk);
   }
 
@@ -360,209 +362,4 @@ function parseRowsFromWholeText(text) {
   for (const chunk of chunks) {
     const row = parseChunk(chunk);
 
-    debug.push(
-      [
-        `RAW: ${row.raw}`,
-        `→ name=${row.name || "-"}`,
-        `flight=${row.flightNo || "-"}`,
-        `stand=${row.stand || "-"}`,
-        `etd=${row.etd || "-"}`,
-        `reg=${row.regNo || "-"}`
-      ].join(" | ")
-    );
-
-    // 박종규 없는 행은 삭제
-    if (normalizeName(row.name) !== FIXED_SEARCH_VALUE) continue;
-    if (!row.flightNo) continue;
-
-    rows.push(row);
-  }
-
-  if (ocrLinesOutputEl) {
-    ocrLinesOutputEl.value = debug.join("\n\n");
-  }
-
-  return dedupeRows(rows);
-}
-
-function renderTable(rows, columns) {
-  if (!resultTableHeadEl || !resultTableBodyEl) return;
-
-  resultTableHeadEl.innerHTML = "";
-  resultTableBodyEl.innerHTML = "";
-
-  const trHead = document.createElement("tr");
-  columns.forEach((col) => {
-    const th = document.createElement("th");
-    th.textContent = COLUMN_LABELS[col] || col;
-    trHead.appendChild(th);
-  });
-  resultTableHeadEl.appendChild(trHead);
-
-  rows.forEach((row) => {
-    const tr = document.createElement("tr");
-    columns.forEach((col) => {
-      const td = document.createElement("td");
-      td.textContent = row[col] || "";
-      tr.appendChild(td);
-    });
-    resultTableBodyEl.appendChild(tr);
-  });
-}
-
-function buildCopyText(rows, columns) {
-  return rows
-    .map((row, idx) => {
-      const parts = columns
-        .map((col) => row[col] || "")
-        .filter((v) => String(v).trim() !== "");
-      return `${idx + 1}. ${parts.join(" / ")}`;
-    })
-    .join("\n");
-}
-
-function downloadCSV(rows, columns) {
-  if (!rows.length) {
-    alert("다운로드할 결과가 없습니다.");
-    return;
-  }
-
-  const header = columns
-    .map((c) => `"${(COLUMN_LABELS[c] || c).replace(/"/g, '""')}"`)
-    .join(",");
-
-  const body = rows.map((row) =>
-    columns.map((c) => `"${String(row[c] || "").replace(/"/g, '""')}"`).join(",")
-  );
-
-  const csv = [header, ...body].join("\n");
-  const blob = new Blob(["\uFEFF" + csv], {
-    type: "text/csv;charset=utf-8;"
-  });
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "ocr_result.csv";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-async function preprocessImage(file) {
-  const img = await new Promise((resolve, reject) => {
-    const el = new Image();
-    el.onload = () => resolve(el);
-    el.onerror = reject;
-    el.src = URL.createObjectURL(file);
-  });
-
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-
-  const scale = 2.0;
-  canvas.width = Math.floor(img.width * scale);
-  canvas.height = Math.floor(img.height * scale);
-
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imageData.data;
-
-  for (let i = 0; i < data.length; i += 4) {
-    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    const v = gray > 185 ? 255 : gray < 140 ? 0 : gray;
-    data[i] = v;
-    data[i + 1] = v;
-    data[i + 2] = v;
-  }
-
-  ctx.putImageData(imageData, 0, 0);
-  return canvas;
-}
-
-if (runBtn) {
-  runBtn.addEventListener("click", async () => {
-    if (!currentFile) {
-      alert("사진을 먼저 선택하세요.");
-      return;
-    }
-
-    try {
-      enforceFixedSearch();
-      selectedColumns = getSelectedColumns();
-      setStatus("이미지 전처리 중...");
-
-      if (ocrRawOutputEl) ocrRawOutputEl.value = "";
-      if (ocrLinesOutputEl) ocrLinesOutputEl.value = "";
-      if (copyOutputEl) copyOutputEl.value = "";
-
-      const processed = await preprocessImage(currentFile);
-
-      setStatus("OCR 실행 중...");
-
-      const result = await Tesseract.recognize(processed, "kor+eng", {
-        logger: (m) => {
-          if (!m.status) return;
-          const pct = m.progress ? ` ${Math.round(m.progress * 100)}%` : "";
-          setStatus(`${m.status}${pct}`);
-        }
-      });
-
-      const text = result?.data?.text || "";
-
-      if (ocrRawOutputEl) {
-        ocrRawOutputEl.value = text;
-      }
-
-      lastRows = parseRowsFromWholeText(text);
-
-      renderTable(lastRows, selectedColumns);
-
-      if (copyOutputEl) {
-        copyOutputEl.value = buildCopyText(lastRows, selectedColumns);
-      }
-
-      setStatus(`완료 (${lastRows.length}건)`);
-    } catch (err) {
-      console.error(err);
-      setStatus("오류 발생");
-      alert("OCR 처리 중 오류가 발생했습니다.");
-    }
-  });
-}
-
-if (copyBtn) {
-  copyBtn.addEventListener("click", async () => {
-    const text = copyOutputEl ? copyOutputEl.value : "";
-    if (!text) {
-      alert("복사할 결과가 없습니다.");
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(text);
-      alert("복사 완료");
-    } catch (e) {
-      console.error(e);
-      alert("복사 실패");
-    }
-  });
-}
-
-if (csvBtn) {
-  csvBtn.addEventListener("click", () => {
-    downloadCSV(lastRows, selectedColumns);
-  });
-}
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch((err) => {
-      console.error("SW 등록 실패:", err);
-    });
-  });
-}
-
-enforceFixedSearch();
+   
