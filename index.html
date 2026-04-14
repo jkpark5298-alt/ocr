@@ -54,10 +54,10 @@
         <div class="field">
           <label for="searchType">검색 대상</label>
           <select id="searchType">
-            <option value="name" selected>이름(R/O L/D)</option>
+            <option value="name">이름(R/O L/D)</option>
             <option value="flightNo">편명</option>
             <option value="stand">주기장</option>
-            <option value="raw">원문 전체</option>
+            <option value="raw" selected>원문 전체</option>
           </select>
         </div>
 
@@ -66,101 +66,10 @@
           <input
             id="searchValue"
             type="text"
-            placeholder="기본값은 박종규, 필요시 수정 가능"
             value="박종규"
+            readonly
           />
         </div>
       </div>
 
-      <h3 class="section-title">선택 컬럼</h3>
-      <div class="chip-row">
-        <label class="chip-check">
-          <input type="checkbox" name="columns" value="flightNo" checked />
-          <span>편명</span>
-        </label>
-
-        <label class="chip-check">
-          <input type="checkbox" name="columns" value="name" />
-          <span>이름(R/O L/D)</span>
-        </label>
-
-        <label class="chip-check">
-          <input type="checkbox" name="columns" value="stand" checked />
-          <span>주기장</span>
-        </label>
-
-        <label class="chip-check">
-          <input type="checkbox" name="columns" value="etd" />
-          <span>ETD</span>
-        </label>
-
-        <label class="chip-check">
-          <input type="checkbox" name="columns" value="route" />
-          <span>노선</span>
-        </label>
-
-        <label class="chip-check">
-          <input type="checkbox" name="columns" value="regNo" />
-          <span>등록기호</span>
-        </label>
-
-        <label class="chip-check">
-          <input type="checkbox" name="columns" value="raw" />
-          <span>원문</span>
-        </label>
-      </div>
-
-      <label class="inline-check">
-        <input id="removeLeadingZero" type="checkbox" checked />
-        <span>편명 앞 0 제거 (예: KJ0283 → KJ283)</span>
-      </label>
-
-      <div class="action-row">
-        <button id="runBtn" class="primary" type="button">OCR 실행</button>
-        <button id="copyBtn" class="secondary" type="button">복사</button>
-        <button id="csvBtn" class="secondary" type="button">CSV 다운로드</button>
-      </div>
-
-      <div id="status" class="status">대기 중</div>
-    </section>
-
-    <section class="card">
-      <h2>3. 추출 결과</h2>
-      <div class="table-shell">
-        <table>
-          <thead id="resultTableHead"></thead>
-          <tbody id="resultTableBody"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>4. 복사용 출력</h2>
-      <div class="copy-box">
-        <textarea id="copyOutput" placeholder="OCR 실행 후 결과가 여기에 표시됩니다."></textarea>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>5. OCR 원문 디버그</h2>
-
-      <div class="field">
-        <label for="ocrRawOutput">OCR 전체 원문</label>
-        <textarea id="ocrRawOutput" placeholder="OCR 실행 후 전체 원문이 표시됩니다."></textarea>
-      </div>
-
-      <div class="field" style="margin-top:16px;">
-        <label for="ocrLinesOutput">OCR 줄별 디버그</label>
-        <textarea id="ocrLinesOutput" placeholder="줄별 파싱 대상 텍스트가 표시됩니다."></textarea>
-      </div>
-
-      <div class="footer-note">
-        결과가 이상하면 여기에 나온 원문을 기준으로 어떤 줄이 잘못 읽혔는지 확인할 수 있습니다.
-      </div>
-    </section>
-  </main>
-
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="./app.js"></script>
-</body>
-</html>
+     
