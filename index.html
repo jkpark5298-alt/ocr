@@ -126,7 +126,6 @@
 
     <section class="card">
       <h2>3. 추출 결과</h2>
-
       <div class="table-shell">
         <table>
           <thead id="resultTableHead"></thead>
@@ -137,13 +136,26 @@
 
     <section class="card">
       <h2>4. 복사용 출력</h2>
-
       <div class="copy-box">
         <textarea id="copyOutput" placeholder="OCR 실행 후 결과가 여기에 표시됩니다."></textarea>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>5. OCR 원문 디버그</h2>
+
+      <div class="field">
+        <label for="ocrRawOutput">OCR 전체 원문</label>
+        <textarea id="ocrRawOutput" placeholder="OCR 실행 후 전체 원문이 표시됩니다."></textarea>
+      </div>
+
+      <div class="field" style="margin-top:16px;">
+        <label for="ocrLinesOutput">OCR 줄별 디버그</label>
+        <textarea id="ocrLinesOutput" placeholder="줄별 파싱 대상 텍스트가 표시됩니다."></textarea>
+      </div>
 
       <div class="footer-note">
-        결과가 이상하면 사진 각도, 그림자, 초점, 표 해상도를 다시 확인해 주세요.
+        결과가 이상하면 여기에 나온 원문을 기준으로 어떤 줄이 잘못 읽혔는지 확인할 수 있습니다.
       </div>
     </section>
   </main>
