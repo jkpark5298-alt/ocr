@@ -13,6 +13,8 @@ const removeZeroEl = document.getElementById("removeLeadingZero");
 const resultTableHeadEl = document.getElementById("resultTableHead");
 const resultTableBodyEl = document.getElementById("resultTableBody");
 const copyOutputEl = document.getElementById("copyOutput");
+const ocrRawOutputEl = document.getElementById("ocrRawOutput");
+const ocrLinesOutputEl = document.getElementById("ocrLinesOutput");
 
 let currentFile = null;
 let lastRows = [];
@@ -66,15 +68,11 @@ if (galleryInput) {
 }
 
 function getSelectedColumns() {
-  const checked = Array.from(
-    document.querySelectorAll('input[name="columns"]:checked')
-  )
+  const checked = Array.from(document.querySelectorAll('input[name="columns"]:checked'))
     .map((el) => el.value)
     .filter(Boolean);
 
-  if (checked.length === 0) {
-    return ["flightNo", "stand"];
-  }
+  if (checked.length === 0) return ["flightNo", "stand"];
   return checked;
 }
 
@@ -86,24 +84,27 @@ function normalizeText(v) {
     .trim();
 }
 
+function compactText(v) {
+  return String(v || "").replace(/\s+/g, "");
+}
+
 function normalizeName(v) {
   if (!v) return "";
-  let s = String(v).replace(/\s+/g, "").trim();
+  const s = compactText(v);
 
   const nameMap = {
     "박종구": "박종규",
     "박종7": "박종규",
     "박종9": "박종규",
     "박종큐": "박종규",
-    "이영식1": "이영식",
     "이영삭": "이영식",
     "이영직": "이영식",
+    "이영식1": "이영식",
     "윤기션": "윤기선",
     "최용준1": "최용준"
   };
 
-  if (nameMap[s]) return nameMap[s];
-  return s;
+  return nameMap[s] || s;
 }
 
 function normalizeStand(value) {
@@ -115,17 +116,8 @@ function normalizeStand(value) {
     "6741": "674L",
     "674I": "674L",
     "674|": "674L",
-    "674L.": "674L",
     "6748": "674R",
-    "674B": "674R",
-    "674R.": "674R",
-    "6211": "621",
-    "6222": "622",
-    "6233": "623",
-    "6244": "624",
-    "6255": "625",
-    "6266": "626",
-    "6277": "627"
+    "674B": "674R"
   };
 
   if (replacements[v]) v = replacements[v];
@@ -136,9 +128,7 @@ function normalizeStand(value) {
     if (["8", "B", "R"].includes(tail)) return "674R";
   }
 
-  if (VALID_STANDS.includes(v)) return v;
-
-  return "";
+  return VALID_STANDS.includes(v) ? v : "";
 }
 
 function normalizeFlightNo(v, removeLeadingZero = true) {
@@ -155,40 +145,33 @@ function normalizeFlightNo(v, removeLeadingZero = true) {
     .replace(/^K\|/, "KJ")
     .replace(/[^A-Z0-9]/g, "");
 
-  let m = s.match(/^KJ(\d{3,4})$/);
+  const m = s.match(/^KJ(\d{2,4})$/);
   if (!m) return "";
 
   let num = m[1];
   if (removeLeadingZero) {
     num = String(parseInt(num, 10));
   }
+
+  if (!/^\d{2,4}$/.test(num)) return "";
   return "KJ" + num;
 }
 
-function isValidFlightNo(v) {
-  if (!v) return false;
-  return /^KJ\d{2,4}$/.test(v);
-}
+function extractFlightNo(raw, removeLeadingZero = true) {
+  if (!raw) return "";
 
-function extractFlightFromToken(token, removeLeadingZero = true) {
-  if (!token) return "";
+  const text = String(raw).toUpperCase();
 
-  const raw = String(token).toUpperCase();
-
-  let m = raw.match(/KJ[\s\-_:|.,]*\d{2,4}/);
+  let m = text.match(/\bKJ[\s\-_:|.,]*\d{2,4}\b/);
   if (m) return normalizeFlightNo(m[0], removeLeadingZero);
 
-  m = raw.match(/K[JIOQL1|][\s\-_:|.,]*\d{2,4}/);
+  m = text.match(/\bK[JIOQL1|][\s\-_:|.,]*\d{2,4}\b/);
   if (m) return normalizeFlightNo(m[0], removeLeadingZero);
 
-  m = raw.match(/K\s*J\s*\d{2,4}/);
+  m = text.match(/\bK\s*J\s*\d{2,4}\b/);
   if (m) return normalizeFlightNo(m[0], removeLeadingZero);
 
   return "";
-}
-
-function extractStandFromToken(token) {
-  return normalizeStand(token);
 }
 
 function extractRegNo(raw) {
@@ -205,43 +188,30 @@ function extractETD(raw) {
 
   m = String(raw).match(/\b([01]\d|2[0-3])([0-5]\d)\b/);
   if (m) {
-    const v = m[0];
-    if (/^(2026|2025|2024)$/.test(v)) return "";
-    return `${v.slice(0, 2)}:${v.slice(2, 4)}`;
+    const hhmm = m[0];
+    if (/^(2026|2025|2024)$/.test(hhmm)) return "";
+    return `${hhmm.slice(0, 2)}:${hhmm.slice(2, 4)}`;
   }
 
   return "";
 }
 
-function extractRouteFromTokens(tokens) {
-  const airports = tokens
-    .map((t) => String(t.text || "").toUpperCase().replace(/[^A-Z]/g, ""))
-    .filter((v) => /^[A-Z]{3}$/.test(v));
-
-  if (airports.length < 2) return "";
-
-  for (let i = 0; i < airports.length - 1; i++) {
-    const a = airports[i];
-    const b = airports[i + 1];
-    if (a !== "DEP" && a !== "APR" && b !== "DEP" && b !== "APR") {
-      return `${a}-${b}`;
-    }
-  }
-
+function extractRoute(raw) {
+  if (!raw) return "";
+  const airports = String(raw).toUpperCase().match(/\b[A-Z]{3}\b/g) || [];
+  const filtered = airports.filter((v) => !["DEP", "APR", "ETA", "ETD"].includes(v));
+  if (filtered.length >= 2) return `${filtered[0]}-${filtered[1]}`;
   return "";
 }
 
-function extractNameFromTokens(tokens) {
-  const joined = tokens
-    .map((t) => normalizeText(t.text))
-    .join(" ")
-    .replace(/\s+/g, "");
+function findNameInLine(line) {
+  const s = compactText(line);
 
   for (const name of KNOWN_NAMES) {
-    if (joined.includes(name)) return name;
+    if (s.includes(name)) return name;
   }
 
-  const fixed = joined
+  const fixed = s
     .replace(/박종구/g, "박종규")
     .replace(/박종7/g, "박종규")
     .replace(/박종9/g, "박종규")
@@ -255,6 +225,72 @@ function extractNameFromTokens(tokens) {
   }
 
   return "";
+}
+
+function isHeaderLine(line) {
+  const t = normalizeText(line).toUpperCase();
+  return (
+    !t ||
+    t.includes("에어제타") ||
+    t.includes("주기장") ||
+    t.includes("편명") ||
+    t.includes("등록기호") ||
+    t.includes("R/O") ||
+    t.includes("T/O") ||
+    t.includes("R/I")
+  );
+}
+
+function parseLine(line) {
+  const removeLeadingZero = !!(removeZeroEl?.checked);
+  const raw = normalizeText(line);
+
+  const row = {
+    flightNo: extractFlightNo(raw, removeLeadingZero),
+    name: normalizeName(findNameInLine(raw)),
+    stand: "",
+    etd: extractETD(raw),
+    route: extractRoute(raw),
+    regNo: extractRegNo(raw),
+    raw
+  };
+
+  const standMatch = raw.toUpperCase().match(/\b(621|622|623|624|625|626|627|672|674[LRI18B|])\b/);
+  if (standMatch) {
+    row.stand = normalizeStand(standMatch[1]);
+  }
+
+  return row;
+}
+
+function mergeBrokenLines(lines) {
+  const out = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    let current = normalizeText(lines[i]);
+    if (!current) continue;
+
+    const next = normalizeText(lines[i + 1] || "");
+    const currentName = findNameInLine(current);
+    const nextName = findNameInLine(next);
+
+    if (!currentName && nextName) {
+      const hasData =
+        extractFlightNo(current) ||
+        extractRegNo(current) ||
+        extractETD(current) ||
+        /\b(621|622|623|624|625|626|627|672|674[LRI18B|])\b/i.test(current);
+
+      if (hasData) {
+        current = `${current} ${next}`;
+        i += 1;
+      }
+    }
+
+    out.push(current);
+  }
+
+  return out;
 }
 
 function rowMatches(row, searchType, keyword) {
@@ -282,225 +318,6 @@ function rowMatches(row, searchType, keyword) {
   return true;
 }
 
-function isHeaderLikeRow(text) {
-  const t = normalizeText(text).toUpperCase();
-  return (
-    t.includes("주기장") ||
-    t.includes("편명") ||
-    t.includes("등록기호") ||
-    t.includes("ETD") ||
-    t.includes("ETA") ||
-    t.includes("R/O") ||
-    t.includes("LD") ||
-    t.includes("T/O") ||
-    t.includes("R/I") ||
-    t.includes("에어제타")
-  );
-}
-
-function groupWordsIntoRows(words) {
-  const cleanWords = (words || [])
-    .filter((w) => w && w.text && String(w.text).trim())
-    .map((w) => {
-      const x0 = w.bbox?.x0 ?? 0;
-      const y0 = w.bbox?.y0 ?? 0;
-      const x1 = w.bbox?.x1 ?? x0;
-      const y1 = w.bbox?.y1 ?? y0;
-      return {
-        text: normalizeText(w.text),
-        x0,
-        y0,
-        x1,
-        y1,
-        cy: (y0 + y1) / 2,
-        h: Math.max(1, y1 - y0)
-      };
-    });
-
-  cleanWords.sort((a, b) => a.cy - b.cy);
-
-  const rows = [];
-  for (const word of cleanWords) {
-    let found = null;
-
-    for (const row of rows) {
-      const tolerance = Math.max(12, row.avgHeight * 0.65);
-      if (Math.abs(row.cy - word.cy) <= tolerance) {
-        found = row;
-        break;
-      }
-    }
-
-    if (!found) {
-      rows.push({
-        cy: word.cy,
-        avgHeight: word.h,
-        words: [word]
-      });
-    } else {
-      found.words.push(word);
-      found.cy =
-        found.words.reduce((sum, v) => sum + v.cy, 0) / found.words.length;
-      found.avgHeight =
-        found.words.reduce((sum, v) => sum + v.h, 0) / found.words.length;
-    }
-  }
-
-  rows.forEach((row) => {
-    row.words.sort((a, b) => a.x0 - b.x0);
-    row.text = row.words.map((w) => w.text).join(" ");
-  });
-
-  return rows.filter((row) => !isHeaderLikeRow(row.text));
-}
-
-function parseStructuredRowsFromWords(words) {
-  const removeLeadingZero = !!(removeZeroEl?.checked);
-  const rows = groupWordsIntoRows(words);
-  const out = [];
-
-  for (const row of rows) {
-    const tokens = row.words;
-    const raw = row.text;
-
-    let stand = "";
-    let flightNo = "";
-    let regNo = "";
-    let etd = "";
-    let name = "";
-
-    for (const t of tokens) {
-      const tokenText = String(t.text || "").trim();
-
-      if (!stand) {
-        const s = extractStandFromToken(tokenText);
-        if (s) {
-          stand = s;
-          continue;
-        }
-      }
-
-      if (!flightNo) {
-        const f = extractFlightFromToken(tokenText, removeLeadingZero);
-        if (isValidFlightNo(f)) {
-          flightNo = f;
-          continue;
-        }
-      }
-
-      if (!regNo) {
-        const reg = extractRegNo(tokenText);
-        if (reg) {
-          regNo = reg;
-          continue;
-        }
-      }
-    }
-
-    etd = extractETD(raw);
-    name = normalizeName(extractNameFromTokens(tokens));
-    const route = extractRouteFromTokens(tokens);
-
-    // 행 전체에서 한 번 더 보강
-    if (!flightNo) {
-      flightNo = extractFlightFromToken(raw, removeLeadingZero);
-    }
-
-    if (!regNo) {
-      regNo = extractRegNo(raw);
-    }
-
-    const parsed = {
-      flightNo,
-      name,
-      stand,
-      etd,
-      route,
-      regNo,
-      raw
-    };
-
-    // 핵심: 표 행으로 인정할 최소 조건
-    // 이름 또는 편명 또는 주기장이 있어야 함
-    if (!parsed.flightNo && !parsed.name && !parsed.stand) continue;
-
-    // 편명 가짜값 제거
-    if (parsed.flightNo && !isValidFlightNo(parsed.flightNo)) {
-      parsed.flightNo = "";
-    }
-
-    // 주기장만 있고 이름/편명이 전혀 없으면 버림
-    if (parsed.stand && !parsed.flightNo && !parsed.name) continue;
-
-    out.push(parsed);
-  }
-
-  return dedupeRows(out);
-}
-
-function parseFallbackTextRows(text) {
-  const removeLeadingZero = !!(removeZeroEl?.checked);
-
-  const lines = String(text)
-    .split(/\n+/)
-    .map((v) => normalizeText(v))
-    .filter(Boolean);
-
-  const rows = [];
-
-  for (const raw of lines) {
-    if (isHeaderLikeRow(raw)) continue;
-
-    const name = normalizeName(
-      KNOWN_NAMES.find((n) => raw.replace(/\s+/g, "").includes(n)) || ""
-    );
-
-    const stand =
-      normalizeStand((raw.match(/\b(621|622|623|624|625|626|627|672|674[LRI18B|])\b/i) || [])[1] || "");
-
-    const flightNo = extractFlightFromToken(raw, removeLeadingZero);
-    const regNo = extractRegNo(raw);
-    const etd = extractETD(raw);
-
-    const row = {
-      flightNo,
-      name,
-      stand,
-      etd,
-      route: "",
-      regNo,
-      raw
-    };
-
-    if (!row.flightNo && !row.name && !row.stand) continue;
-    if (row.stand && !row.flightNo && !row.name) continue;
-
-    rows.push(row);
-  }
-
-  return dedupeRows(rows);
-}
-
-function parseRowsFromOCR(result, keyword, searchType = "name") {
-  const words = result?.data?.words || [];
-  const text = result?.data?.text || "";
-
-  let rows = parseStructuredRowsFromWords(words);
-
-  if (!rows.length) {
-    rows = parseFallbackTextRows(text);
-  }
-
-  rows = rows.filter((row) => rowMatches(row, searchType, keyword));
-
-  if (searchType === "name") {
-    const target = normalizeName(keyword);
-    rows = rows.filter((row) => normalizeName(row.name) === target);
-  }
-
-  return dedupeRows(rows);
-}
-
 function dedupeRows(rows) {
   const seen = new Set();
   const out = [];
@@ -520,6 +337,48 @@ function dedupeRows(rows) {
   }
 
   return out;
+}
+
+function parseRowsFromText(text, keyword, searchType = "name") {
+  const rawLines = String(text)
+    .split(/\n+/)
+    .map((v) => normalizeText(v))
+    .filter(Boolean);
+
+  const mergedLines = mergeBrokenLines(rawLines);
+  const parsedRows = [];
+  const debugLines = [];
+
+  for (const line of mergedLines) {
+    if (isHeaderLine(line)) continue;
+
+    const row = parseLine(line);
+
+    debugLines.push(
+      [
+        `RAW: ${row.raw}`,
+        `→ name=${row.name || "-"}`,
+        `flight=${row.flightNo || "-"}`,
+        `stand=${row.stand || "-"}`,
+        `etd=${row.etd || "-"}`,
+        `reg=${row.regNo || "-"}`
+      ].join(" | ")
+    );
+
+    if (!row.flightNo && !row.name && !row.stand && !row.regNo) continue;
+    if (searchType === "name" && !row.name) continue;
+    if (searchType === "name" && normalizeName(row.name) !== normalizeName(keyword)) continue;
+    if (!row.flightNo) continue;
+    if (!rowMatches(row, searchType, keyword)) continue;
+
+    parsedRows.push(row);
+  }
+
+  if (ocrLinesOutputEl) {
+    ocrLinesOutputEl.value = debugLines.join("\n\n");
+  }
+
+  return dedupeRows(parsedRows);
 }
 
 function renderTable(rows, columns) {
@@ -571,9 +430,7 @@ function downloadCSV(rows, columns) {
     .join(",");
 
   const body = rows.map((row) =>
-    columns
-      .map((c) => `"${String(row[c] || "").replace(/"/g, '""')}"`)
-      .join(",")
+    columns.map((c) => `"${String(row[c] || "").replace(/"/g, '""')}"`).join(",")
   );
 
   const csv = [header, ...body].join("\n");
@@ -602,7 +459,7 @@ async function preprocessImage(file) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
 
-  const scale = 2.2;
+  const scale = 2.0;
   canvas.width = Math.floor(img.width * scale);
   canvas.height = Math.floor(img.height * scale);
 
@@ -613,7 +470,7 @@ async function preprocessImage(file) {
 
   for (let i = 0; i < data.length; i += 4) {
     const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    const v = gray > 188 ? 255 : gray < 138 ? 0 : gray;
+    const v = gray > 185 ? 255 : gray < 140 ? 0 : gray;
     data[i] = v;
     data[i + 1] = v;
     data[i + 2] = v;
@@ -634,6 +491,10 @@ if (runBtn) {
       selectedColumns = getSelectedColumns();
       setStatus("이미지 전처리 중...");
 
+      if (ocrRawOutputEl) ocrRawOutputEl.value = "";
+      if (ocrLinesOutputEl) ocrLinesOutputEl.value = "";
+      if (copyOutputEl) copyOutputEl.value = "";
+
       const processed = await preprocessImage(currentFile);
 
       setStatus("OCR 실행 중...");
@@ -643,15 +504,18 @@ if (runBtn) {
           if (!m.status) return;
           const pct = m.progress ? ` ${Math.round(m.progress * 100)}%` : "";
           setStatus(`${m.status}${pct}`);
-        },
-        tessedit_pageseg_mode: 6,
-        preserve_interword_spaces: "1"
+        }
       });
 
+      const text = result?.data?.text || "";
       const keyword = searchValueEl ? searchValueEl.value.trim() : "";
       const searchType = searchTypeEl ? searchTypeEl.value : "name";
 
-      lastRows = parseRowsFromOCR(result, keyword, searchType);
+      if (ocrRawOutputEl) {
+        ocrRawOutputEl.value = text;
+      }
+
+      lastRows = parseRowsFromText(text, keyword, searchType);
 
       renderTable(lastRows, selectedColumns);
 
