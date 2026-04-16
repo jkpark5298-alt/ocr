@@ -1,9 +1,11 @@
-const CACHE_NAME = "ocr-stand-search-v1";
+const CACHE_NAME = "ocr-stand-search-v4-pwa";
 
 const ASSETS = [
   "./",
   "./index.html",
-  "./app.js"
+  "./app.js",
+  "./sw.js",
+  "./manifest.json"
 ];
 
 self.addEventListener("install", (event) => {
@@ -37,10 +39,10 @@ self.addEventListener("fetch", (event) => {
 
       return fetch(request)
         .then((response) => {
-          const responseClone = response.clone();
+          const clone = response.clone();
 
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseClone);
+            cache.put(request, clone);
           });
 
           return response;
