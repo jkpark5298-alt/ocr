@@ -20,45 +20,40 @@ let currentFile = null;
 let lastRows = [];
 let selectedColumns = ["flightNo", "stand"];
 
-const FIXED_SEARCH_VALUE = "박종규";
-
 const COLUMN_LABELS = {
   flightNo: "편명",
-  name: "이름(R/O L/D)",
   stand: "주기장",
-  etd: "ETD",
-  route: "노선",
-  regNo: "등록기호",
-  raw: "원문"
+  name: "이름",
+  nameRaw: "이름원문",
+  flightRaw: "편명원문",
+  standRaw: "주기장원문",
+  raw: "합본원문"
 };
 
 const VALID_STANDS = [
   "621", "622", "623", "624", "625", "626", "627",
-  "672", "674L", "674R"
+  "672", "673", "674L", "674R"
 ];
 
-const KNOWN_NAMES = ["박종규", "이영식", "윤기선", "최용준"];
+const KNOWN_NAMES = ["이영식", "박종규", "김우석", "윤기선", "최용준"];
+
+const CROP = {
+  table:  { x1: 0.03, y1: 0.04, x2: 0.985, y2: 0.99 },
+  flight: { x1: 0.00, y1: 0.04, x2: 0.15, y2: 0.995 },
+  name:   { x1: 0.60, y1: 0.04, x2: 0.79, y2: 0.995 },
+  stand:  { x1: 0.88, y1: 0.04, x2: 1.00, y2: 0.995 }
+};
 
 function setStatus(text) {
   if (statusEl) statusEl.textContent = text;
 }
 
-function enforceFixedSearch() {
-  if (searchTypeEl) searchTypeEl.value = "raw";
-  if (searchValueEl) {
-    searchValueEl.value = FIXED_SEARCH_VALUE;
-    searchValueEl.setAttribute("readonly", "readonly");
-  }
-}
-
 function showPreview(file) {
   if (!file || !preview) return;
   currentFile = file;
-
   const url = URL.createObjectURL(file);
   preview.src = url;
   preview.style.display = "block";
-
   if (previewWrap) previewWrap.classList.remove("empty");
   if (previewPlaceholder) previewPlaceholder.style.display = "none";
 }
@@ -77,33 +72,28 @@ if (galleryInput) {
   });
 }
 
-if (searchTypeEl) {
-  searchTypeEl.addEventListener("change", () => {
-    searchTypeEl.value = "raw";
-  });
-}
-
-if (searchValueEl) {
-  searchValueEl.addEventListener("input", () => {
-    searchValueEl.value = FIXED_SEARCH_VALUE;
-  });
-}
-
 function getSelectedColumns() {
   const checked = Array.from(document.querySelectorAll('input[name="columns"]:checked'))
     .map((el) => el.value)
     .filter(Boolean);
-
   return checked.length ? checked : ["flightNo", "stand"];
+}
+
+function getSearchType() {
+  return String(searchTypeEl?.value || "name");
+}
+
+function getSearchKeyword() {
+  return String(searchValueEl?.value || "").trim();
 }
 
 function normalizeText(v) {
   return String(v || "")
     .replace(/\u00A0/g, " ")
     .replace(/[|]/g, "I")
-    .replace(/[，]/g, ",")
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
+    .replace(/[，]/g, ",")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -112,33 +102,11 @@ function compactText(v) {
   return String(v || "").replace(/\s+/g, "");
 }
 
-function normalizeName(v) {
+function normalizeStand(v) {
   if (!v) return "";
-  const s = compactText(v);
+  let s = String(v).toUpperCase().replace(/\s+/g, "").trim();
 
-  const nameMap = {
-    "박종구": "박종규",
-    "박종7": "박종규",
-    "박종9": "박종규",
-    "박종큐": "박종규",
-    "이영삭": "이영식",
-    "이영직": "이영식",
-    "이영식1": "이영식",
-    "윤기션": "윤기선",
-    "최용춘": "최용준",
-    "최용순": "최용준",
-    "최용준1": "최용준"
-  };
-
-  return nameMap[s] || s;
-}
-
-function normalizeStand(value) {
-  if (!value) return "";
-
-  let v = String(value).toUpperCase().replace(/\s+/g, "").trim();
-
-  const replacements = {
+  const map = {
     "6741": "674L",
     "674I": "674L",
     "674|": "674L",
@@ -146,20 +114,13 @@ function normalizeStand(value) {
     "674B": "674R"
   };
 
-  if (replacements[v]) v = replacements[v];
-
-  if (/^674.$/.test(v)) {
-    const tail = v.slice(3);
-    if (["1", "I", "L", "|"].includes(tail)) return "674L";
-    if (["8", "B", "R"].includes(tail)) return "674R";
-  }
-
-  return VALID_STANDS.includes(v) ? v : "";
+  s = map[s] || s;
+  return VALID_STANDS.includes(s) ? s : "";
 }
 
-function extractAnyStand(raw) {
-  if (!raw) return "";
-  const m = String(raw).toUpperCase().match(/\b(621|622|623|624|625|626|627|672|674[LRI18B|])\b/);
+function extractStandFromText(text) {
+  if (!text) return "";
+  const m = String(text).toUpperCase().match(/\b(621|622|623|624|625|626|627|672|673|674[LRI18B|])\b/);
   return m ? normalizeStand(m[1]) : "";
 }
 
@@ -167,7 +128,6 @@ function normalizeFlightNo(v, removeLeadingZero = true) {
   if (!v) return "";
 
   let s = String(v).toUpperCase().replace(/\s+/g, "").trim();
-
   s = s
     .replace(/^KJO/, "KJ0")
     .replace(/^KJQ/, "KJ0")
@@ -177,103 +137,302 @@ function normalizeFlightNo(v, removeLeadingZero = true) {
     .replace(/^K\|/, "KJ")
     .replace(/[^A-Z0-9]/g, "");
 
-  const m = s.match(/^KJ(\d{2,4})$/);
+  const m = s.match(/^KJ(\d{3,4})$/);
   if (!m) return "";
 
   let num = m[1];
   if (removeLeadingZero) num = String(parseInt(num, 10));
-  return /^\d{2,4}$/.test(num) ? `KJ${num}` : "";
+  if (!/^\d{3,4}$/.test(num)) return "";
+
+  return `KJ${num}`;
 }
 
-function extractFlightNo(raw, removeLeadingZero = true) {
-  if (!raw) return "";
-  const text = String(raw).toUpperCase();
+function extractFlightNoFromText(text, removeLeadingZero = true) {
+  if (!text) return "";
 
-  let m = text.match(/\bKJ[\s\-_:|.,]*\d{2,4}\b/);
+  const upper = String(text).toUpperCase();
+
+  let m = upper.match(/\bKJ[\s\-_:|.,]*\d{3,4}\b/);
   if (m) return normalizeFlightNo(m[0], removeLeadingZero);
 
-  m = text.match(/\bK[JIOQL1|][\s\-_:|.,]*\d{2,4}\b/);
+  m = upper.match(/\bK[JIOQL1|][\s\-_:|.,]*\d{3,4}\b/);
   if (m) return normalizeFlightNo(m[0], removeLeadingZero);
 
-  m = text.match(/\bK\s*J\s*\d{2,4}\b/);
+  m = upper.match(/\bK\s*J\s*\d{3,4}\b/);
   if (m) return normalizeFlightNo(m[0], removeLeadingZero);
-
-  m = text.match(/\b11(\d{3,4})\b/);
-  if (m) return normalizeFlightNo(`KJ${m[1]}`, removeLeadingZero);
-
-  m = text.match(/\bI1(\d{3,4})\b/);
-  if (m) return normalizeFlightNo(`KJ${m[1]}`, removeLeadingZero);
 
   return "";
 }
 
-function extractRegNo(raw) {
-  if (!raw) return "";
-  const m = String(raw).toUpperCase().match(/\bHL\d{4}\b/);
-  return m ? m[0] : "";
-}
+function normalizeKnownName(v) {
+  if (!v) return "";
 
-function extractETD(raw) {
-  if (!raw) return "";
+  let s = compactText(v);
 
-  let m = String(raw).match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/);
-  if (m) return `${m[1].padStart(2, "0")}:${m[2]}`;
+  s = s
+    .replace(/^[ABC]\s*/i, "")
+    .replace(/^[ㄱㄴㄷ]\s*/i, "")
+    .replace(/^0\s*/, "")
+    .replace(/^O\s*/, "");
 
-  m = String(raw).match(/\b([01]\d|2[0-3])([0-5]\d)\b/);
-  if (m) {
-    const hhmm = m[0];
-    if (/^(2026|2025|2024)$/.test(hhmm)) return "";
-    return `${hhmm.slice(0, 2)}:${hhmm.slice(2, 4)}`;
-  }
+  const nameMap = {
+    "박종구": "박종규",
+    "박종큐": "박종규",
+    "박종7": "박종규",
+    "박종9": "박종규",
+    "이영삭": "이영식",
+    "이영직": "이영식",
+    "김우서": "김우석",
+    "윤기션": "윤기선",
+    "최용순": "최용준",
+    "최용춘": "최용준"
+  };
 
-  return "";
-}
-
-function extractRoute(raw) {
-  if (!raw) return "";
-  const airports = String(raw).toUpperCase().match(/\b[A-Z]{3}\b/g) || [];
-  const filtered = airports.filter((v) => !["DEP", "APR", "ETA", "ETD"].includes(v));
-  return filtered.length >= 2 ? `${filtered[0]}-${filtered[1]}` : "";
-}
-
-function findNameInText(text) {
-  const s = compactText(text);
+  s = nameMap[s] || s;
 
   for (const name of KNOWN_NAMES) {
     if (s.includes(name)) return name;
   }
 
-  const fixed = s
-    .replace(/박종구/g, "박종규")
-    .replace(/박종7/g, "박종규")
-    .replace(/박종9/g, "박종규")
-    .replace(/박종큐/g, "박종규")
-    .replace(/이영삭/g, "이영식")
-    .replace(/이영직/g, "이영식")
-    .replace(/윤기션/g, "윤기선")
-    .replace(/최용춘/g, "최용준")
-    .replace(/최용순/g, "최용준");
-
-  for (const name of KNOWN_NAMES) {
-    if (fixed.includes(name)) return name;
-  }
-
-  return "";
+  return s;
 }
 
-function parseChunk(raw) {
-  const removeLeadingZero = !!(removeZeroEl?.checked);
-  const text = normalizeText(raw);
+function createCanvas(width, height) {
+  const c = document.createElement("canvas");
+  c.width = width;
+  c.height = height;
+  return c;
+}
+
+async function fileToImage(file) {
+  return await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function preprocessFullImage(img) {
+  const scale = 2.2;
+  const canvas = createCanvas(Math.floor(img.width * scale), Math.floor(img.height * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    let v = gray;
+    if (gray > 208) v = 255;
+    else if (gray < 150) v = 0;
+    else v = gray > 182 ? 230 : 75;
+
+    data[i] = v;
+    data[i + 1] = v;
+    data[i + 2] = v;
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+function cropCanvasByRatio(sourceCanvas, ratio) {
+  const sx = Math.floor(sourceCanvas.width * ratio.x1);
+  const sy = Math.floor(sourceCanvas.height * ratio.y1);
+  const sw = Math.floor(sourceCanvas.width * (ratio.x2 - ratio.x1));
+  const sh = Math.floor(sourceCanvas.height * (ratio.y2 - ratio.y1));
+
+  const out = createCanvas(sw, sh);
+  const ctx = out.getContext("2d");
+  ctx.drawImage(sourceCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  return out;
+}
+
+async function recognizeCanvasDetailed(canvas, lang) {
+  return await Tesseract.recognize(canvas, lang, {
+    logger: () => {}
+  });
+}
+
+function sortWords(words) {
+  return [...words].sort((a, b) => {
+    const ay = a.bbox?.y0 ?? 0;
+    const by = b.bbox?.y0 ?? 0;
+    if (Math.abs(ay - by) > 8) return ay - by;
+    const ax = a.bbox?.x0 ?? 0;
+    const bx = b.bbox?.x0 ?? 0;
+    return ax - bx;
+  });
+}
+
+function validWordText(text) {
+  return normalizeText(text).length > 0;
+}
+
+function groupWordsIntoRows(words, tolerance = 18) {
+  const rows = [];
+  const sorted = sortWords(words).filter((w) => validWordText(w.text));
+
+  for (const word of sorted) {
+    const y = word.bbox?.y0 ?? 0;
+    let found = null;
+
+    for (const row of rows) {
+      if (Math.abs(row.avgY - y) <= tolerance) {
+        found = row;
+        break;
+      }
+    }
+
+    if (!found) {
+      found = { words: [], avgY: y };
+      rows.push(found);
+    }
+
+    found.words.push(word);
+    found.avgY =
+      found.words.reduce((sum, w) => sum + (w.bbox?.y0 ?? 0), 0) / found.words.length;
+  }
+
+  return rows
+    .map((row) => {
+      const sortedWords = [...row.words].sort((a, b) => (a.bbox?.x0 ?? 0) - (b.bbox?.x0 ?? 0));
+      const text = sortedWords.map((w) => normalizeText(w.text)).join(" ").trim();
+      return {
+        y: row.avgY,
+        text
+      };
+    })
+    .filter((row) => row.text);
+}
+
+function cleanFlightRows(rows) {
+  return rows
+    .map((r) => r.text)
+    .filter((text) => {
+      const c = compactText(text).toUpperCase();
+      if (!c || c.includes("편명")) return false;
+      return /K/.test(c) && /\d/.test(c);
+    });
+}
+
+function cleanStandRows(rows) {
+  return rows
+    .map((r) => r.text)
+    .filter((text) => {
+      const c = compactText(text).toUpperCase();
+      if (!c || c.includes("주기장")) return false;
+      return /\d/.test(c);
+    });
+}
+
+function cleanNameRows(rows) {
+  return rows
+    .map((r) => r.text)
+    .filter((text) => {
+      const c = compactText(text);
+      if (!c) return false;
+      if (/RO|LD|R\/O|L\/D/i.test(c)) return false;
+      return /[A-Z가-힣\-]/i.test(c);
+    });
+}
+
+function parseNameLine(rawLine) {
+  const line = normalizeText(rawLine);
+  const compact = compactText(line);
+
+  if (!line) {
+    return { label: "", name: "", raw: "" };
+  }
+
+  const full = compact.match(/^([ABC])([가-힣]{2,4})$/i);
+  if (full) {
+    return {
+      label: full[1].toUpperCase(),
+      name: normalizeKnownName(full[2]),
+      raw: line
+    };
+  }
+
+  const loose = compact.match(/^([ABC])(.+)$/i);
+  if (loose) {
+    const maybeName = normalizeKnownName(loose[2]);
+    return {
+      label: loose[1].toUpperCase(),
+      name: KNOWN_NAMES.includes(maybeName) ? maybeName : maybeName,
+      raw: line
+    };
+  }
+
+  const labelOnly = compact.match(/^([ABC])$/i);
+  if (labelOnly) {
+    return {
+      label: labelOnly[1].toUpperCase(),
+      name: "",
+      raw: line
+    };
+  }
+
+  if (compact === "-" || compact === "—" || compact === "_") {
+    return { label: "-", name: "", raw: line };
+  }
 
   return {
-    flightNo: extractFlightNo(text, removeLeadingZero),
-    name: normalizeName(findNameInText(text)),
-    stand: extractAnyStand(text),
-    etd: extractETD(text),
-    route: extractRoute(text),
-    regNo: extractRegNo(text),
-    raw: text
+    label: "",
+    name: normalizeKnownName(compact),
+    raw: line
   };
+}
+
+function buildNameMap(parsedNameRows) {
+  const map = {};
+
+  for (const row of parsedNameRows) {
+    if (row.label && row.name && KNOWN_NAMES.includes(row.name)) {
+      map[row.label] = row.name;
+    }
+  }
+
+  return map;
+}
+
+function resolveNameRows(parsedNameRows, nameMap) {
+  return parsedNameRows.map((row) => {
+    if (row.name && KNOWN_NAMES.includes(row.name)) return row;
+    if (row.label && nameMap[row.label]) {
+      return {
+        ...row,
+        name: nameMap[row.label]
+      };
+    }
+    return row;
+  });
+}
+
+function mergeRows(flightRows, nameRows, standRows) {
+  const rowCount = Math.max(flightRows.length, nameRows.length, standRows.length);
+  const out = [];
+  const removeLeadingZero = !!removeZeroEl?.checked;
+
+  for (let i = 0; i < rowCount; i++) {
+    const flightRaw = flightRows[i] || "";
+    const nameObj = nameRows[i] || { label: "", name: "", raw: "" };
+    const standRaw = standRows[i] || "";
+
+    out.push({
+      flightNo: extractFlightNoFromText(flightRaw, removeLeadingZero),
+      stand: extractStandFromText(standRaw),
+      name: normalizeKnownName(nameObj.name || ""),
+      nameRaw: nameObj.raw || "",
+      flightRaw,
+      standRaw,
+      raw: [flightRaw, nameObj.raw, standRaw].filter(Boolean).join(" | ")
+    });
+  }
+
+  return out;
 }
 
 function dedupeRows(rows) {
@@ -281,14 +440,7 @@ function dedupeRows(rows) {
   const out = [];
 
   for (const row of rows) {
-    const key = [
-      row.flightNo || "",
-      row.name || "",
-      row.stand || "",
-      row.etd || "",
-      row.regNo || ""
-    ].join("|");
-
+    const key = [row.flightNo || "", row.name || "", row.stand || ""].join("|");
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(row);
@@ -297,93 +449,19 @@ function dedupeRows(rows) {
   return out;
 }
 
-function cleanWholeText(text) {
-  return normalizeText(
-    String(text || "")
-      .replace(/에어제타\s*$$$.*?$$$/gi, " ")
-      .replace(/주기장/g, " ")
-      .replace(/편명/g, " ")
-      .replace(/등록기호/g, " ")
-      .replace(/DEP/g, " ")
-      .replace(/APR/g, " ")
-      .replace(/ETD\/ETA/g, " ")
-      .replace(/R\/O\s*LD/g, " ")
-      .replace(/T\/O\s*R\/I/g, " ")
-  );
-}
+function isSearchMatched(row) {
+  const keyword = getSearchKeyword();
+  const type = getSearchType();
 
-function getRowStartMatches(text) {
-  const regex = /\b(621|622|623|624|625|626|627|672|674[LRI18B|])\s+([A-Z0-9]{3,8})\b/gi;
-  const matches = [];
-  let m;
+  if (!keyword) return true;
 
-  while ((m = regex.exec(text)) !== null) {
-    const stand = normalizeStand(m[1]);
-    const token2 = (m[2] || "").toUpperCase();
-
-    const looksLikeFlight =
-      token2.startsWith("K") ||
-      /^11\d{3,4}$/.test(token2) ||
-      /^I1\d{3,4}$/.test(token2);
-
-    if (stand && looksLikeFlight) {
-      matches.push({
-        index: m.index,
-        stand
-      });
-    }
+  if (type === "raw") {
+    return compactText(row.raw).includes(compactText(keyword));
   }
 
-  return matches;
-}
-
-function splitWholeTextToChunks(text) {
-  const cleaned = cleanWholeText(text);
-  const starts = getRowStartMatches(cleaned);
-
-  if (!starts.length) return [];
-
-  const chunks = [];
-  for (let i = 0; i < starts.length; i++) {
-    const start = starts[i].index;
-    const end = i < starts.length - 1 ? starts[i + 1].index : cleaned.length;
-    const chunk = cleaned.slice(start, end).trim();
-    if (chunk) chunks.push(chunk);
-  }
-
-  return chunks;
-}
-
-function parseRowsFromWholeText(text) {
-  const chunks = splitWholeTextToChunks(text);
-  const debug = [];
-  const rows = [];
-
-  for (const chunk of chunks) {
-    const row = parseChunk(chunk);
-
-    debug.push(
-      [
-        `RAW: ${row.raw}`,
-        `→ name=${row.name || "-"}`,
-        `flight=${row.flightNo || "-"}`,
-        `stand=${row.stand || "-"}`,
-        `etd=${row.etd || "-"}`,
-        `reg=${row.regNo || "-"}`
-      ].join(" | ")
-    );
-
-    if (normalizeName(row.name) !== FIXED_SEARCH_VALUE) continue;
-    if (!row.flightNo) continue;
-
-    rows.push(row);
-  }
-
-  if (ocrLinesOutputEl) {
-    ocrLinesOutputEl.value = debug.join("\n\n");
-  }
-
-  return dedupeRows(rows);
+  const q = normalizeKnownName(keyword);
+  return compactText(row.name).includes(compactText(q)) ||
+         compactText(row.nameRaw).includes(compactText(keyword));
 }
 
 function renderTable(rows, columns) {
@@ -392,13 +470,13 @@ function renderTable(rows, columns) {
   resultTableHeadEl.innerHTML = "";
   resultTableBodyEl.innerHTML = "";
 
-  const trHead = document.createElement("tr");
+  const headTr = document.createElement("tr");
   columns.forEach((col) => {
     const th = document.createElement("th");
     th.textContent = COLUMN_LABELS[col] || col;
-    trHead.appendChild(th);
+    headTr.appendChild(th);
   });
-  resultTableHeadEl.appendChild(trHead);
+  resultTableHeadEl.appendChild(headTr);
 
   rows.forEach((row) => {
     const tr = document.createElement("tr");
@@ -441,9 +519,7 @@ function downloadCSV(rows, columns) {
   );
 
   const csv = [header, ...body].join("\n");
-  const blob = new Blob(["\uFEFF" + csv], {
-    type: "text/csv;charset=utf-8;"
-  });
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement("a");
@@ -455,36 +531,74 @@ function downloadCSV(rows, columns) {
   URL.revokeObjectURL(url);
 }
 
-async function preprocessImage(file) {
-  const img = await new Promise((resolve, reject) => {
-    const el = new Image();
-    el.onload = () => resolve(el);
-    el.onerror = reject;
-    el.src = URL.createObjectURL(file);
-  });
+async function extractRowsBySeparatedColumns(file) {
+  const img = await fileToImage(file);
+  const processed = preprocessFullImage(img);
 
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
+  const tableCanvas = cropCanvasByRatio(processed, CROP.table);
+  const flightCanvas = cropCanvasByRatio(tableCanvas, CROP.flight);
+  const nameCanvas = cropCanvasByRatio(tableCanvas, CROP.name);
+  const standCanvas = cropCanvasByRatio(tableCanvas, CROP.stand);
 
-  const scale = 2.0;
-  canvas.width = Math.floor(img.width * scale);
-  canvas.height = Math.floor(img.height * scale);
+  setStatus("편명 열 OCR 중...");
+  const flightResult = await recognizeCanvasDetailed(flightCanvas, "eng");
 
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  setStatus("이름 열 OCR 중...");
+  const nameResult = await recognizeCanvasDetailed(nameCanvas, "kor+eng");
 
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imageData.data;
+  setStatus("주기장 열 OCR 중...");
+  const standResult = await recognizeCanvasDetailed(standCanvas, "eng");
 
-  for (let i = 0; i < data.length; i += 4) {
-    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    const v = gray > 185 ? 255 : gray < 140 ? 0 : gray;
-    data[i] = v;
-    data[i + 1] = v;
-    data[i + 2] = v;
-  }
+  const flightWords = flightResult?.data?.words || [];
+  const nameWords = nameResult?.data?.words || [];
+  const standWords = standResult?.data?.words || [];
 
-  ctx.putImageData(imageData, 0, 0);
-  return canvas;
+  const flightRowsRaw = groupWordsIntoRows(flightWords, 16);
+  const nameRowsRaw = groupWordsIntoRows(nameWords, 16);
+  const standRowsRaw = groupWordsIntoRows(standWords, 16);
+
+  const flightRows = cleanFlightRows(flightRowsRaw);
+  const nameRowsText = cleanNameRows(nameRowsRaw);
+  const standRows = cleanStandRows(standRowsRaw);
+
+  const parsedNameRows = nameRowsText.map(parseNameLine);
+  const nameMap = buildNameMap(parsedNameRows);
+  const resolvedNameRows = resolveNameRows(parsedNameRows, nameMap);
+
+  const mergedRows = mergeRows(flightRows, resolvedNameRows, standRows);
+  const rows = dedupeRows(
+    mergedRows.filter((row) => row.flightNo && row.stand).filter(isSearchMatched)
+  );
+
+  const debugText = [
+    "[편명 열 TEXT]",
+    flightResult?.data?.text || "",
+    "",
+    "[이름 열 TEXT]",
+    nameResult?.data?.text || "",
+    "",
+    "[주기장 열 TEXT]",
+    standResult?.data?.text || "",
+    "",
+    "[이름 코드 매핑]",
+    JSON.stringify(nameMap, null, 2)
+  ].join("\n");
+
+  const lineDebug = mergedRows
+    .map((row, idx) => {
+      return [
+        `${idx + 1}.`,
+        `flightRaw=${row.flightRaw || "-"}`,
+        `nameRaw=${row.nameRaw || "-"}`,
+        `standRaw=${row.standRaw || "-"}`,
+        `=> flight=${row.flightNo || "-"}`,
+        `name=${row.name || "-"}`,
+        `stand=${row.stand || "-"}`
+      ].join(" | ");
+    })
+    .join("\n\n");
+
+  return { rows, debugText, lineDebug };
 }
 
 if (runBtn) {
@@ -495,39 +609,21 @@ if (runBtn) {
     }
 
     try {
-      enforceFixedSearch();
       selectedColumns = getSelectedColumns();
-      setStatus("이미지 전처리 중...");
+      setStatus("이미지 분석 준비 중...");
 
       if (ocrRawOutputEl) ocrRawOutputEl.value = "";
       if (ocrLinesOutputEl) ocrLinesOutputEl.value = "";
       if (copyOutputEl) copyOutputEl.value = "";
 
-      const processed = await preprocessImage(currentFile);
+      const { rows, debugText, lineDebug } = await extractRowsBySeparatedColumns(currentFile);
 
-      setStatus("OCR 실행 중...");
-
-      const result = await Tesseract.recognize(processed, "kor+eng", {
-        logger: (m) => {
-          if (!m.status) return;
-          const pct = m.progress ? ` ${Math.round(m.progress * 100)}%` : "";
-          setStatus(`${m.status}${pct}`);
-        }
-      });
-
-      const text = result?.data?.text || "";
-
-      if (ocrRawOutputEl) {
-        ocrRawOutputEl.value = text;
-      }
-
-      lastRows = parseRowsFromWholeText(text);
-
+      lastRows = rows;
       renderTable(lastRows, selectedColumns);
 
-      if (copyOutputEl) {
-        copyOutputEl.value = buildCopyText(lastRows);
-      }
+      if (copyOutputEl) copyOutputEl.value = buildCopyText(lastRows);
+      if (ocrRawOutputEl) ocrRawOutputEl.value = debugText;
+      if (ocrLinesOutputEl) ocrLinesOutputEl.value = lineDebug;
 
       setStatus(`완료 (${lastRows.length}건)`);
     } catch (err) {
@@ -569,5 +665,3 @@ if ("serviceWorker" in navigator) {
     });
   });
 }
-
-enforceFixedSearch();
